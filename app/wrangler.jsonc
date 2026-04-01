@@ -1,0 +1,46 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "chatbridge",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat_v2"],
+  "main": "./src/workers/index.ts",
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/ws/*"]
+  },
+  "vars": {
+    "CF_ACCOUNT_ID": "e4eb8966855fa9ef705bd36f8cc400c1",
+    "AI_GATEWAY_ID": "chatbridge-gateway"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "chatbridge-db",
+      "database_id": "6e60ba85-b73a-4f26-ad2c-d9eccb279768",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "APP_MANIFESTS",
+      "id": "d5f86d0cd83545cf958a50513b408134"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHAT_SESSION",
+        "class_name": "ChatSession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ChatSession"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}
