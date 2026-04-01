@@ -1,4 +1,12 @@
 import { DurableObject } from "cloudflare:workers";
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import type { Env } from "../types";
+import { authMiddleware } from "./middleware/auth";
+import authRoutes from "./routes/auth";
+import conversationRoutes from "./routes/conversations";
+import chatRoutes from "./routes/chat";
+import appRoutes from "./routes/apps";
 
 export class ChatSession extends DurableObject {
   async fetch(request: Request): Promise<Response> {
@@ -6,14 +14,38 @@ export class ChatSession extends DurableObject {
   }
 }
 
-export default {
-  fetch(request: Request): Response {
-    const url = new URL(request.url);
+type AppEnv = {
+  Bindings: Env;
+  Variables: {
+    userId: string;
+    email: string;
+  };
+};
 
-    if (url.pathname.startsWith("/api/")) {
-      return Response.json({ status: "ok", message: "ChatBridge API" });
-    }
+const app = new Hono<AppEnv>();
 
-    return new Response(null, { status: 404 });
-  },
-} satisfies ExportedHandler;
+app.use(
+  "/api/*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+  }),
+);
+
+app.route("/api/auth", authRoutes);
+
+app.use("/api/conversations/*", authMiddleware);
+app.use("/api/chat/*", authMiddleware);
+app.use("/api/apps/*", authMiddleware);
+
+app.route("/api/conversations", conversationRoutes);
+app.route("/api/chat", chatRoutes);
+app.route("/api/apps", appRoutes);
+
+app.onError((err, c) => {
+  console.error("Unhandled error:", err);
+  return c.json({ error: "Internal server error" }, 500);
+});
+
+export default app;
