@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Test App</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+    }
+    .card {
+      background: #1f2937;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .status { color: #34d399; font-weight: 600; }
+    .log { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+    h2 { margin: 0 0 8px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Test App</h2>
+    <div>Status: <span id="status" class="status">Connecting...</span></div>
+    <div id="log" class="log"></div>
+  </div>
+
+  <script type="module">
+    import { connect, WindowMessenger } from "https://esm.sh/penpal@7.0.6";
+
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+
+    function log(msg) {
+      const line = document.createElement("div");
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.prepend(line);
+    }
+
+    const messenger = new WindowMessenger({
+      remoteWindow: window.parent,
+      allowedOrigins: ["*"],
+    });
+
+    const connection = connect({
+      messenger,
+      methods: {
+        async initialize(config) {
+          log(`initialize called: sessionId=${config.sessionId}, theme=${config.theme}`);
+          statusEl.textContent = "Connected";
+        },
+        async invokeTool(toolName, params) {
+          log(`invokeTool: ${toolName} params=${JSON.stringify(params)}`);
+          return {
+            success: true,
+            data: { toolName, params, timestamp: Date.now() },
+            displayText: `Test tool "${toolName}" executed successfully with params: ${JSON.stringify(params)}`,
+          };
+        },
+        async getState() {
+          return {
+            raw: { status: "running" },
+            display: "Test app is running",
+          };
+        },
+        async destroy() {
+          log("destroy called");
+          statusEl.textContent = "Destroyed";
+        },
+      },
+    });
+
+    connection.promise.then(async (parent) => {
+      log("Penpal connection established");
+      statusEl.textContent = "Connected";
+      await parent.notifyStateUpdate({
+        raw: { status: "ready" },
+        display: "Test app ready",
+      });
+      log("Sent notifyStateUpdate to parent");
+    }).catch((err) => {
+      log(`Connection error: ${err.message}`);
+      statusEl.textContent = "Error";
+    });
+  </script>
+</body>
+</html>

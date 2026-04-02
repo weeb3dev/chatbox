@@ -7,6 +7,7 @@ import authRoutes from "./routes/auth";
 import conversationRoutes from "./routes/conversations";
 import chatRoutes from "./routes/chat";
 import appRoutes from "./routes/apps";
+import appSessionRoutes from "./routes/app-sessions";
 
 export class ChatSession extends DurableObject {
   async fetch(request: Request): Promise<Response> {
@@ -38,10 +39,12 @@ app.route("/api/auth", authRoutes);
 app.use("/api/conversations/*", authMiddleware);
 app.use("/api/chat/*", authMiddleware);
 app.use("/api/apps/*", authMiddleware);
+app.use("/api/app-sessions/*", authMiddleware);
 
 app.route("/api/conversations", conversationRoutes);
 app.route("/api/chat", chatRoutes);
 app.route("/api/apps", appRoutes);
+app.route("/api/app-sessions", appSessionRoutes);
 
 app.onError((err, c) => {
   console.error("Unhandled error:", err);
