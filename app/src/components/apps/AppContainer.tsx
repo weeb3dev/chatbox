@@ -208,7 +208,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
           <iframe
             ref={iframeRef}
             src={manifest.entry_url}
-            sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
             allow="clipboard-write"
             referrerPolicy="no-referrer"
             style={{

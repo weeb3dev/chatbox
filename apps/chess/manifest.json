@@ -6,7 +6,7 @@
   "author": "ChatBridge",
   "category": "games",
   "auth": { "type": "none" },
-  "entry_url": "http://localhost:5181",
+  "entry_url": "http://localhost:5174",
   "iframe": {
     "width": "100%",
     "height": "500px",
