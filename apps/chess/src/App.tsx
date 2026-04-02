@@ -334,6 +334,17 @@ export default function App() {
     };
   }, []);
 
+  const handleStartGameRef = useRef(handleStartGame);
+  const handleMakeMoveRef = useRef(handleMakeMove);
+  const handleGetBoardStateRef = useRef(handleGetBoardState);
+  const handleAnalyzePositionRef = useRef(handleAnalyzePosition);
+  const getStateSummaryRef = useRef(getStateSummary);
+  handleStartGameRef.current = handleStartGame;
+  handleMakeMoveRef.current = handleMakeMove;
+  handleGetBoardStateRef.current = handleGetBoardState;
+  handleAnalyzePositionRef.current = handleAnalyzePosition;
+  getStateSummaryRef.current = getStateSummary;
+
   useEffect(() => {
     const messenger = new WindowMessenger({
       remoteWindow: window.parent,
@@ -353,19 +364,19 @@ export default function App() {
           console.log("[Chess] invokeTool:", toolName, params);
           switch (toolName) {
             case "start_game":
-              return handleStartGame(params);
+              return handleStartGameRef.current(params);
             case "make_move":
-              return handleMakeMove(params);
+              return handleMakeMoveRef.current(params);
             case "get_board_state":
-              return handleGetBoardState();
+              return handleGetBoardStateRef.current();
             case "analyze_position":
-              return handleAnalyzePosition();
+              return handleAnalyzePositionRef.current();
             default:
               return { success: false, error: `Unknown tool: ${toolName}`, displayText: `Unknown tool "${toolName}".` };
           }
         },
         async getState(): Promise<AppStateSummary> {
-          return getStateSummary();
+          return getStateSummaryRef.current();
         },
         async destroy() {
           console.log("[Chess] destroy");
@@ -378,7 +389,7 @@ export default function App() {
       .then(async (parent) => {
         parentRef.current = parent;
         setConnectionState("connected");
-        await parent.notifyStateUpdate(getStateSummary());
+        await parent.notifyStateUpdate(getStateSummaryRef.current());
       })
       .catch((err) => {
         console.error("[Chess] Penpal connection failed:", err);
@@ -388,7 +399,8 @@ export default function App() {
     return () => {
       connection.destroy();
     };
-  }, [handleStartGame, handleMakeMove, handleGetBoardState, handleAnalyzePosition, getStateSummary]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onPieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { piece: unknown; sourceSquare: string; targetSquare: string | null }): boolean => {
