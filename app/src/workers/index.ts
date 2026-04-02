@@ -1,4 +1,3 @@
-import { DurableObject } from "cloudflare:workers";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env } from "../types";
@@ -9,12 +8,9 @@ import chatRoutes from "./routes/chat";
 import appRoutes from "./routes/apps";
 import appSessionRoutes from "./routes/app-sessions";
 import spotifyOAuthRoutes from "./routes/oauth-spotify";
+import wsRoutes from "./routes/ws-chat";
 
-export class ChatSession extends DurableObject {
-  async fetch(_request: Request): Promise<Response> {
-    return new Response("ChatSession DO stub");
-  }
-}
+export { ChatSession } from "./chat-session";
 
 type AppEnv = {
   Bindings: Env;
@@ -45,6 +41,7 @@ app.use("/api/app-sessions/*", authMiddleware);
 
 app.route("/api/conversations", conversationRoutes);
 app.route("/api/chat", chatRoutes);
+app.route("/ws", wsRoutes);
 app.route("/api/apps", appRoutes);
 app.route("/api/app-sessions", appSessionRoutes);
 
