@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Env, Message, AppManifest, AppSession, ServerMessage } from "../../types";
 import {
-  callClaude,
+  callClaudeWithRetry,
   buildSystemPrompt,
   buildToolArray,
   buildToolToAppMap,
@@ -361,20 +361,32 @@ async function handleChatStream(params: {
     const tools = buildToolArray(currentManifests);
     const claudeMessages = convertMessageHistory(messages);
 
-    const claudeResponse = await callClaude({
-      env,
-      system: systemPrompt,
-      messages: claudeMessages,
-      tools,
-      userId,
-    });
+    let claudeResponse: Response;
+    try {
+      claudeResponse = await callClaudeWithRetry({
+        env,
+        system: systemPrompt,
+        messages: claudeMessages,
+        tools,
+        userId,
+      });
+    } catch (e) {
+      console.error("Claude API failed after retries:", e);
+      const errEvent: ServerMessage = {
+        type: "error",
+        message: "Something went wrong. Try again.",
+        retryable: true,
+      };
+      await writer.write(encoder.encode(formatSSEEvent(errEvent)));
+      return;
+    }
 
     if (!claudeResponse.ok) {
       const errBody = await claudeResponse.text().catch(() => "Unknown error");
       console.error("Claude API error:", claudeResponse.status, errBody);
       const errEvent: ServerMessage = {
         type: "error",
-        message: `AI service error (${claudeResponse.status})`,
+        message: "Something went wrong. Try again.",
         retryable: true,
       };
       await writer.write(encoder.encode(formatSSEEvent(errEvent)));
@@ -565,7 +577,7 @@ chat.post("/", async (c) => {
       console.error("Stream processing error:", err);
       const errEvent: ServerMessage = {
         type: "error",
-        message: "Internal stream processing error",
+        message: "Something went wrong. Try again.",
         retryable: true,
       };
       return writer.write(encoder.encode(formatSSEEvent(errEvent)));
@@ -635,7 +647,7 @@ chat.post("/tool-result", async (c) => {
       console.error("Stream processing error:", err);
       const errEvent: ServerMessage = {
         type: "error",
-        message: "Internal stream processing error",
+        message: "Something went wrong. Try again.",
         retryable: true,
       };
       return writer.write(encoder.encode(formatSSEEvent(errEvent)));

@@ -6,6 +6,7 @@ import {
   isStreamingAtom,
   streamingMessageAtom,
   pendingToolCallAtom,
+  streamErrorAtom,
 } from "../stores/chat";
 import { apiStream } from "../lib/api";
 import type { Message, ServerMessage, ToolResult } from "../types";
@@ -73,10 +74,13 @@ export function useChat() {
   const setIsStreaming = useSetAtom(isStreamingAtom);
   const setStreamingMessage = useSetAtom(streamingMessageAtom);
   const setPendingToolCall = useSetAtom(pendingToolCallAtom);
+  const setStreamError = useSetAtom(streamErrorAtom);
 
   const sendMessage = useCallback(
     async (content: string) => {
       if (!conversationId) return;
+
+      setStreamError(null);
 
       const tempUserMsg: Message = {
         id: `temp-${Date.now()}`,
@@ -132,23 +136,35 @@ export function useChat() {
           },
           (errorMsg) => {
             console.error("Chat stream error:", errorMsg);
+            setStreamError(
+              errorMsg || "Something went wrong. Try again.",
+            );
             setStreamingMessage("");
             setIsStreaming(false);
           },
         );
       } catch (err) {
         console.error("Chat request failed:", err);
+        setStreamError("Something went wrong. Try again.");
         setStreamingMessage("");
         setIsStreaming(false);
       }
     },
-    [conversationId, setMessages, setIsStreaming, setStreamingMessage, setPendingToolCall],
+    [
+      conversationId,
+      setMessages,
+      setIsStreaming,
+      setStreamingMessage,
+      setPendingToolCall,
+      setStreamError,
+    ],
   );
 
   const submitToolResult = useCallback(
     async (callId: string, result: ToolResult) => {
       if (!conversationId) return;
 
+      setStreamError(null);
       setIsStreaming(true);
       setStreamingMessage("");
       let accumulatedText = "";
@@ -190,17 +206,28 @@ export function useChat() {
           },
           (errorMsg) => {
             console.error("Tool result stream error:", errorMsg);
+            setStreamError(
+              errorMsg || "Something went wrong. Try again.",
+            );
             setStreamingMessage("");
             setIsStreaming(false);
           },
         );
       } catch (err) {
         console.error("Tool result request failed:", err);
+        setStreamError("Something went wrong. Try again.");
         setStreamingMessage("");
         setIsStreaming(false);
       }
     },
-    [conversationId, setMessages, setIsStreaming, setStreamingMessage, setPendingToolCall],
+    [
+      conversationId,
+      setMessages,
+      setIsStreaming,
+      setStreamingMessage,
+      setPendingToolCall,
+      setStreamError,
+    ],
   );
 
   return { sendMessage, submitToolResult };

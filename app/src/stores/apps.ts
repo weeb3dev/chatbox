@@ -14,3 +14,6 @@ export interface ActiveApp {
 export const activeAppAtom = atom<ActiveApp | null>(null);
 
 export const appContainerReadyAtom = atom<boolean>(false);
+
+/** Bumped when app circuit breaker state changes so UI can re-read thresholds. */
+export const appCircuitTickAtom = atom(0);

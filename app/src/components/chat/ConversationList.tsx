@@ -1,7 +1,12 @@
 import { useEffect, useCallback } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { conversationsAtom, activeConversationIdAtom } from "../../stores/conversations";
-import { messagesAtom, isStreamingAtom, streamingMessageAtom } from "../../stores/chat";
+import {
+  messagesAtom,
+  isStreamingAtom,
+  streamingMessageAtom,
+  streamErrorAtom,
+} from "../../stores/chat";
 import { authTokenAtom, userAtom } from "../../stores/auth";
 import { useNavigate } from "@tanstack/react-router";
 import { apiFetch } from "../../lib/api";
@@ -13,6 +18,7 @@ export default function ConversationList() {
   const setMessages = useSetAtom(messagesAtom);
   const setStreaming = useSetAtom(isStreamingAtom);
   const setStreamingMsg = useSetAtom(streamingMessageAtom);
+  const setStreamError = useSetAtom(streamErrorAtom);
   const setToken = useSetAtom(authTokenAtom);
   const user = useAtomValue(userAtom);
   const navigate = useNavigate();
@@ -26,6 +32,7 @@ export default function ConversationList() {
       setActiveId(id);
       setStreaming(false);
       setStreamingMsg("");
+      setStreamError(null);
       try {
         const data = await apiFetch<{ messages: Message[] }>(
           `/api/conversations/${id}`,
@@ -35,7 +42,7 @@ export default function ConversationList() {
         setMessages([]);
       }
     },
-    [setActiveId, setMessages, setStreaming, setStreamingMsg],
+    [setActiveId, setMessages, setStreaming, setStreamingMsg, setStreamError],
   );
 
   async function createConversation() {
@@ -59,6 +66,7 @@ export default function ConversationList() {
       if (activeId === id) {
         setActiveId(null);
         setMessages([]);
+        setStreamError(null);
       }
     } catch {
       /* ignore */

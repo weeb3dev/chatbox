@@ -6,9 +6,15 @@ import {
   activeAppAtom,
   activeAppSessionsAtom,
   appContainerReadyAtom,
+  appCircuitTickAtom,
 } from "../stores/apps";
 import { useChat } from "./useChat";
 import { apiFetch } from "../lib/api";
+import {
+  isAppDisabled,
+  recordAppFailure,
+  recordAppSuccess,
+} from "../lib/appCircuitBreaker";
 import type { AppManifest, ToolResult, AppSession } from "../types";
 import type { AppContainerHandle } from "../components/apps/AppContainer";
 
@@ -16,7 +22,11 @@ interface PendingInvocation {
   callId: string;
   toolName: string;
   params: Record<string, unknown>;
+  appId: string;
+  appName: string;
 }
+
+const TOOL_TIMEOUT_MS = 10_000;
 
 export function useAppBridge() {
   const pendingToolCall = useAtomValue(pendingToolCallAtom);
@@ -25,6 +35,8 @@ export function useAppBridge() {
   const setActiveApp = useSetAtom(activeAppAtom);
   const setActiveAppSessions = useSetAtom(activeAppSessionsAtom);
   const containerReady = useAtomValue(appContainerReadyAtom);
+  const setContainerReady = useSetAtom(appContainerReadyAtom);
+  const bumpCircuitTick = useSetAtom(appCircuitTickAtom);
   const { submitToolResult } = useChat();
 
   const containerRef = useRef<AppContainerHandle | null>(null);
@@ -56,8 +68,32 @@ export function useAppBridge() {
     [conversationId, setActiveAppSessions],
   );
 
+  const teardownContainer = useCallback(async () => {
+    try {
+      await containerRef.current?.destroy();
+    } catch {
+      /* best effort */
+    }
+    containerRef.current = null;
+    pendingInvocationRef.current = null;
+    setActiveApp(null);
+    setContainerReady(false);
+  }, [setActiveApp, setContainerReady]);
+
   const executeInvocation = useCallback(
     async (invocation: PendingInvocation) => {
+      if (isAppDisabled(invocation.appId)) {
+        await submitToolResult(invocation.callId, {
+          success: false,
+          error: "app_circuit_open",
+          displayText:
+            "This app has had too many failures in a short time and was paused for this session. You can try again in a new chat, or ask me to help without that app.",
+        });
+        await teardownContainer();
+        bumpCircuitTick((t) => t + 1);
+        return;
+      }
+
       const handle = containerRef.current;
       if (!handle) {
         await submitToolResult(invocation.callId, {
@@ -68,30 +104,50 @@ export function useAppBridge() {
         return;
       }
 
-      const timeoutMs = 10_000;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
       let result: ToolResult;
       try {
         result = await Promise.race([
           handle.invokeTool(invocation.toolName, invocation.params),
-          new Promise<ToolResult>((_, reject) =>
-            setTimeout(
-              () => reject(new Error("Tool call timed out after 10s")),
-              timeoutMs,
-            ),
-          ),
+          new Promise<ToolResult>((_, reject) => {
+            timeoutId = window.setTimeout(
+              () => reject(new Error("__TOOL_TIMEOUT__")),
+              TOOL_TIMEOUT_MS,
+            );
+          }),
         ]);
       } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Tool invocation failed";
-        result = { success: false, error: msg, displayText: msg };
+        if (err instanceof Error && err.message === "__TOOL_TIMEOUT__") {
+          result = {
+            success: false,
+            error: "App did not respond in time",
+            displayText: `${invocation.appName} took too long to respond. It may have encountered an error.`,
+          };
+        } else {
+          const msg =
+            err instanceof Error ? err.message : "Tool invocation failed";
+          result = { success: false, error: msg, displayText: msg };
+        }
+      } finally {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       }
+
+      if (result.success) {
+        recordAppSuccess(invocation.appId);
+      } else {
+        recordAppFailure(invocation.appId);
+      }
+      bumpCircuitTick((t) => t + 1);
 
       await submitToolResult(invocation.callId, result);
     },
-    [submitToolResult],
+    [
+      submitToolResult,
+      teardownContainer,
+      bumpCircuitTick,
+    ],
   );
 
-  // When the container becomes ready and there's a pending invocation, execute it
   useEffect(() => {
     if (containerReady && pendingInvocationRef.current && !processingRef.current) {
       processingRef.current = true;
@@ -103,7 +159,6 @@ export function useAppBridge() {
     }
   }, [containerReady, executeInvocation]);
 
-  // Process incoming tool_invoke events
   useEffect(() => {
     if (!pendingToolCall || processingRef.current) return;
 
@@ -116,11 +171,25 @@ export function useAppBridge() {
       callId: event.callId,
       toolName: event.tool,
       params: (event.params as Record<string, unknown>) ?? {},
+      appId: event.appId,
+      appName: event.appId,
     };
 
     (async () => {
       try {
+        if (isAppDisabled(event.appId)) {
+          await submitToolResult(invocation.callId, {
+            success: false,
+            error: "app_circuit_open",
+            displayText:
+              "This app has had too many failures in a short time and was paused for this session. You can try again in a new chat, or ask me to help without that app.",
+          });
+          bumpCircuitTick((t) => t + 1);
+          return;
+        }
+
         const manifest = await fetchManifest(event.appId);
+        invocation.appName = manifest.name;
 
         const session = await createAppSession(event.appId);
         if (!session) {
@@ -146,6 +215,8 @@ export function useAppBridge() {
           error: "Failed to load app",
           displayText: "The app could not be loaded. Please try again.",
         });
+        recordAppFailure(event.appId);
+        bumpCircuitTick((t) => t + 1);
       }
     })();
   }, [
@@ -156,18 +227,12 @@ export function useAppBridge() {
     setActiveApp,
     executeInvocation,
     submitToolResult,
+    bumpCircuitTick,
   ]);
 
   const closeApp = useCallback(async () => {
-    try {
-      await containerRef.current?.destroy();
-    } catch {
-      /* best effort */
-    }
-    containerRef.current = null;
-    pendingInvocationRef.current = null;
-    setActiveApp(null);
-  }, [setActiveApp]);
+    await teardownContainer();
+  }, [teardownContainer]);
 
   return { setContainerRef, closeApp };
 }

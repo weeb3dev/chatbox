@@ -2,11 +2,12 @@ import {
   useRef,
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useImperativeHandle,
   forwardRef,
 } from "react";
-import { connect, WindowMessenger } from "penpal";
+import { connect, WindowMessenger, PenpalError, ErrorCode } from "penpal";
 import type { Connection } from "penpal";
 import type {
   AppManifest,
@@ -24,6 +25,7 @@ export interface AppContainerHandle {
     params: Record<string, unknown>,
   ): Promise<ToolResult>;
   destroy(): Promise<void>;
+  reportTransportFailure(reason?: string): void;
 }
 
 interface AppContainerProps {
@@ -33,13 +35,25 @@ interface AppContainerProps {
   onStateUpdate: (state: AppStateSummary) => void;
   onCompletion: (event: string, summary: string) => void;
   onReady?: () => void;
+  /** Circuit breaker: show instability warning */
+  degradedWarning?: boolean;
 }
 
-type ConnectionState = "loading" | "connected" | "error";
+type ConnectionState = "loading" | "connected" | "error" | "disconnected";
+
+const IFRAME_LOAD_MS = 5000;
 
 const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
   function AppContainer(
-    { manifest, sessionId, onClose, onStateUpdate, onCompletion, onReady },
+    {
+      manifest,
+      sessionId,
+      onClose,
+      onStateUpdate,
+      onCompletion,
+      onReady,
+      degradedWarning,
+    },
     ref,
   ) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -49,7 +63,13 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
     > | null>(null);
     const [state, setState] = useState<ConnectionState>("loading");
     const [errorMsg, setErrorMsg] = useState("");
+    const [disconnectReason, setDisconnectReason] = useState("");
     const [iframeHeight, setIframeHeight] = useState(manifest.iframe.height);
+    const [reloadKey, setReloadKey] = useState(0);
+
+    const lastErrorKindRef = useRef<"load" | "penpal">("penpal");
+    const lastStateSummaryRef = useRef<AppStateSummary | null>(null);
+    const lastInitializedSessionRef = useRef<string | null>(null);
 
     const onStateUpdateRef = useRef(onStateUpdate);
     const onCompletionRef = useRef(onCompletion);
@@ -59,7 +79,6 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
     onReadyRef.current = onReady;
 
     const destroyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const iframeLoadedRef = useRef(false);
 
     const setupConnection = useCallback(() => {
       const iframe = iframeRef.current;
@@ -73,6 +92,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
 
       setState("loading");
       setErrorMsg("");
+      setDisconnectReason("");
 
       const messenger = new WindowMessenger({
         remoteWindow: iframe.contentWindow,
@@ -83,6 +103,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
         messenger,
         methods: {
           notifyStateUpdate: async (s: AppStateSummary) => {
+            lastStateSummaryRef.current = s;
             onStateUpdateRef.current(s);
           },
           signalCompletion: async (event: string, summary: string) => {
@@ -217,6 +238,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
           appMethodsRef.current = methods;
           setState("connected");
           onReadyRef.current?.();
+          lastInitializedSessionRef.current = sessionId;
           await methods.initialize({
             sessionId,
             theme: "dark",
@@ -225,6 +247,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
         })
         .catch((err) => {
           console.error("Penpal connection failed:", err);
+          lastErrorKindRef.current = "penpal";
           setState("error");
           setErrorMsg(
             err instanceof Error ? err.message : "Connection failed",
@@ -232,28 +255,60 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
         });
     }, [manifest, sessionId]);
 
+    const setupConnectionRef = useRef(setupConnection);
+    setupConnectionRef.current = setupConnection;
+
+    useLayoutEffect(() => {
+      const iframe = iframeRef.current;
+      if (!iframe) return;
+
+      let cancelled = false;
+      const loadTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        console.error("[ChatBridge] App iframe load timeout", {
+          appId: manifest.id,
+          entry_url: manifest.entry_url,
+        });
+        lastErrorKindRef.current = "load";
+        setState("error");
+        setErrorMsg("App failed to load");
+      }, IFRAME_LOAD_MS);
+
+      const handleLoad = () => {
+        if (cancelled) return;
+        window.clearTimeout(loadTimer);
+        setupConnectionRef.current();
+      };
+
+      iframe.addEventListener("load", handleLoad);
+
+      return () => {
+        cancelled = true;
+        window.clearTimeout(loadTimer);
+        iframe.removeEventListener("load", handleLoad);
+      };
+    }, [manifest.entry_url, manifest.id, reloadKey]);
+
+    useEffect(() => {
+      if (state !== "connected") return;
+      const methods = appMethodsRef.current;
+      if (!methods) return;
+      if (lastInitializedSessionRef.current === sessionId) return;
+      lastInitializedSessionRef.current = sessionId;
+      void methods.initialize({
+        sessionId,
+        theme: "dark",
+        locale: "en",
+      });
+    }, [sessionId, state]);
+
     useEffect(() => {
       if (destroyTimerRef.current) {
         clearTimeout(destroyTimerRef.current);
         destroyTimerRef.current = null;
       }
 
-      const iframe = iframeRef.current;
-      if (!iframe) return;
-
-      const handleLoad = () => {
-        iframeLoadedRef.current = true;
-        setupConnection();
-      };
-
-      iframe.addEventListener("load", handleLoad);
-
-      if (iframeLoadedRef.current && !connectionRef.current) {
-        setupConnection();
-      }
-
       return () => {
-        iframe.removeEventListener("load", handleLoad);
         destroyTimerRef.current = setTimeout(() => {
           connectionRef.current?.destroy();
           connectionRef.current = null;
@@ -261,6 +316,27 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
         }, 100);
       };
     }, [setupConnection]);
+
+    const restartIframe = useCallback(() => {
+      if (connectionRef.current) {
+        connectionRef.current.destroy();
+        connectionRef.current = null;
+        appMethodsRef.current = null;
+      }
+      lastInitializedSessionRef.current = null;
+      setReloadKey((k) => k + 1);
+      setState("loading");
+      setErrorMsg("");
+      setDisconnectReason("");
+    }, []);
+
+    const handleRetry = useCallback(() => {
+      if (state === "disconnected" || lastErrorKindRef.current === "load") {
+        restartIframe();
+        return;
+      }
+      setupConnection();
+    }, [state, restartIframe, setupConnection]);
 
     useImperativeHandle(
       ref,
@@ -280,6 +356,13 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
           try {
             return await methods.invokeTool(toolName, params);
           } catch (err) {
+            const isDestroyed =
+              err instanceof PenpalError &&
+              err.code === ErrorCode.ConnectionDestroyed;
+            if (isDestroyed) {
+              setState("disconnected");
+              setDisconnectReason("The connection to the app was lost.");
+            }
             const msg =
               err instanceof Error ? err.message : "Tool invocation failed";
             return { success: false, error: msg, displayText: msg };
@@ -295,9 +378,17 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
           connectionRef.current = null;
           appMethodsRef.current = null;
         },
+        reportTransportFailure(reason?: string) {
+          setState("disconnected");
+          setDisconnectReason(
+            reason ?? "The connection to the app was interrupted.",
+          );
+        },
       }),
       [],
     );
+
+    const summaryText = lastStateSummaryRef.current?.display ?? null;
 
     return (
       <div className="flex h-full flex-col bg-gray-900">
@@ -325,6 +416,13 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
           </button>
         </div>
 
+        {degradedWarning && state === "connected" && (
+          <div className="border-b border-amber-900/50 bg-amber-950/40 px-3 py-2 text-xs text-amber-200/90">
+            This app has been unstable recently. If something fails, try
+            restarting it or switching tasks.
+          </div>
+        )}
+
         <div className="relative flex-1 overflow-hidden">
           {state === "loading" && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/80">
@@ -340,11 +438,22 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
           {state === "error" && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/80">
               <div className="flex flex-col items-center gap-3 px-4 text-center">
-                <span className="text-sm text-red-400">
-                  {errorMsg || "Failed to connect to app"}
+                <span className="text-sm font-medium text-red-300">
+                  {errorMsg === "App failed to load"
+                    ? "App failed to load"
+                    : null}
                 </span>
+                {errorMsg && errorMsg !== "App failed to load" && (
+                  <span className="text-sm text-red-400">{errorMsg}</span>
+                )}
+                {!errorMsg && (
+                  <span className="text-sm text-red-400">
+                    Failed to connect to app
+                  </span>
+                )}
                 <button
-                  onClick={setupConnection}
+                  type="button"
+                  onClick={handleRetry}
                   className="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-600"
                 >
                   Retry
@@ -353,7 +462,33 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
             </div>
           )}
 
+          {state === "disconnected" && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/80">
+              <div className="flex max-w-xs flex-col items-center gap-3 px-4 text-center">
+                <span className="text-sm font-medium text-amber-200">
+                  App disconnected
+                </span>
+                <span className="text-xs text-gray-400">
+                  {disconnectReason}
+                </span>
+                {summaryText && (
+                  <span className="text-xs text-gray-500">
+                    Last state: {summaryText}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={restartIframe}
+                  className="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-600"
+                >
+                  Restart
+                </button>
+              </div>
+            </div>
+          )}
+
           <iframe
+            key={reloadKey}
             ref={iframeRef}
             src={manifest.entry_url}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"

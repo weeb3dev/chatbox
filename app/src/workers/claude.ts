@@ -86,6 +86,50 @@ export async function callClaude(params: CallClaudeParams): Promise<Response> {
   });
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const RETRY_DELAYS_MS = [1000, 2000, 4000] as const;
+
+/** Up to 3 attempts with 1s / 2s / 4s backoff before retries 2 and 3. */
+export async function callClaudeWithRetry(
+  params: CallClaudeParams,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await callClaude(params);
+      if (res.ok) return res;
+      const status = res.status;
+      if (status === 429 || status >= 500) {
+        if (attempt < 2) {
+          console.warn(
+            `[ChatBridge] Claude request retry after ${status} (attempt ${attempt + 1}/3)`,
+          );
+          await sleep(RETRY_DELAYS_MS[attempt]);
+          continue;
+        }
+      }
+      return res;
+    } catch (e) {
+      lastError = e;
+      if (attempt < 2) {
+        console.warn(
+          `[ChatBridge] Claude fetch failed, retry (attempt ${attempt + 1}/3):`,
+          e,
+        );
+        await sleep(RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Claude request failed after retries");
+}
+
 // ── buildSystemPrompt ───────────────────────────────────────────────────
 
 interface AppSummary {
@@ -112,6 +156,7 @@ Rules:
 - When the user's request doesn't match any app, answer directly without invoking tools.
 - When an app signals completion, acknowledge the result naturally and continue the conversation.
 - Never fabricate tool results. If a tool call fails, explain the error honestly.
+- If an app or tool times out or errors, acknowledge it briefly, offer to try again or do something else, and keep the conversation helpful.
 - Keep responses concise and helpful.`);
 
   if (appSessions.length > 0) {

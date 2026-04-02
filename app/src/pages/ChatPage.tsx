@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import ConversationList from "../components/chat/ConversationList";
 import MessageList from "../components/chat/MessageList";
@@ -11,7 +11,9 @@ import { useAppSession } from "../hooks/useAppSession";
 import {
   activeAppAtom,
   appContainerReadyAtom,
+  appCircuitTickAtom,
 } from "../stores/apps";
+import { isAppDegraded } from "../lib/appCircuitBreaker";
 import type { AppStateSummary } from "../types";
 
 export default function ChatPage() {
@@ -19,7 +21,12 @@ export default function ChatPage() {
   const { setContainerRef, closeApp } = useAppBridge();
   const { endAppSession, updateSessionState } = useAppSession();
   const activeApp = useAtomValue(activeAppAtom);
+  const circuitTick = useAtomValue(appCircuitTickAtom);
   const setContainerReady = useSetAtom(appContainerReadyAtom);
+  const degradedWarning = useMemo(
+    () => activeApp != null && isAppDegraded(activeApp.appId),
+    [activeApp, circuitTick],
+  );
   const containerHandleRef = useRef<AppContainerHandle>(null);
 
   const handleContainerRef = useCallback(
@@ -81,6 +88,7 @@ export default function ChatPage() {
             onStateUpdate={handleStateUpdate}
             onCompletion={handleCompletion}
             onReady={handleReady}
+            degradedWarning={degradedWarning}
           />
         </div>
       )}
