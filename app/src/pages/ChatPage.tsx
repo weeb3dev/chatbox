@@ -26,10 +26,13 @@ export default function ChatPage() {
     (handle: AppContainerHandle | null) => {
       containerHandleRef.current = handle;
       setContainerRef(handle);
-      setContainerReady(!!handle);
     },
-    [setContainerRef, setContainerReady],
+    [setContainerRef],
   );
+
+  const handleReady = useCallback(() => {
+    setContainerReady(true);
+  }, [setContainerReady]);
 
   const handleClose = useCallback(async () => {
     if (activeApp) {
@@ -77,6 +80,7 @@ export default function ChatPage() {
             onClose={handleClose}
             onStateUpdate={handleStateUpdate}
             onCompletion={handleCompletion}
+            onReady={handleReady}
           />
         </div>
       )}

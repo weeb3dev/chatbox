@@ -29,13 +29,14 @@ interface AppContainerProps {
   onClose: () => void;
   onStateUpdate: (state: AppStateSummary) => void;
   onCompletion: (event: string, summary: string) => void;
+  onReady?: () => void;
 }
 
 type ConnectionState = "loading" | "connected" | "error";
 
 const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
   function AppContainer(
-    { manifest, sessionId, onClose, onStateUpdate, onCompletion },
+    { manifest, sessionId, onClose, onStateUpdate, onCompletion, onReady },
     ref,
   ) {
     const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -47,9 +48,25 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
     const [errorMsg, setErrorMsg] = useState("");
     const [iframeHeight, setIframeHeight] = useState(manifest.iframe.height);
 
+    const onStateUpdateRef = useRef(onStateUpdate);
+    const onCompletionRef = useRef(onCompletion);
+    const onReadyRef = useRef(onReady);
+    onStateUpdateRef.current = onStateUpdate;
+    onCompletionRef.current = onCompletion;
+    onReadyRef.current = onReady;
+
+    const destroyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const iframeLoadedRef = useRef(false);
+
     const setupConnection = useCallback(() => {
       const iframe = iframeRef.current;
       if (!iframe?.contentWindow) return;
+
+      if (connectionRef.current) {
+        connectionRef.current.destroy();
+        connectionRef.current = null;
+        appMethodsRef.current = null;
+      }
 
       setState("loading");
       setErrorMsg("");
@@ -63,10 +80,10 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
         messenger,
         methods: {
           notifyStateUpdate: async (s: AppStateSummary) => {
-            onStateUpdate(s);
+            onStateUpdateRef.current(s);
           },
           signalCompletion: async (event: string, summary: string) => {
-            onCompletion(event, summary);
+            onCompletionRef.current(event, summary);
           },
           requestResize: async (height: number) => {
             setIframeHeight(`${height}px`);
@@ -84,6 +101,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
         .then(async (methods) => {
           appMethodsRef.current = methods;
           setState("connected");
+          onReadyRef.current?.();
           await methods.initialize({
             sessionId,
             theme: "dark",
@@ -97,20 +115,35 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
             err instanceof Error ? err.message : "Connection failed",
           );
         });
-    }, [manifest, sessionId, onStateUpdate, onCompletion]);
+    }, [manifest, sessionId]);
 
     useEffect(() => {
+      if (destroyTimerRef.current) {
+        clearTimeout(destroyTimerRef.current);
+        destroyTimerRef.current = null;
+      }
+
       const iframe = iframeRef.current;
       if (!iframe) return;
 
-      const handleLoad = () => setupConnection();
+      const handleLoad = () => {
+        iframeLoadedRef.current = true;
+        setupConnection();
+      };
+
       iframe.addEventListener("load", handleLoad);
+
+      if (iframeLoadedRef.current && !connectionRef.current) {
+        setupConnection();
+      }
 
       return () => {
         iframe.removeEventListener("load", handleLoad);
-        connectionRef.current?.destroy();
-        connectionRef.current = null;
-        appMethodsRef.current = null;
+        destroyTimerRef.current = setTimeout(() => {
+          connectionRef.current?.destroy();
+          connectionRef.current = null;
+          appMethodsRef.current = null;
+        }, 100);
       };
     }, [setupConnection]);
 
