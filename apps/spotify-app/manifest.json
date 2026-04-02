@@ -1,0 +1,98 @@
+{
+  "id": "spotify",
+  "name": "Spotify",
+  "version": "1.0.0",
+  "description": "Search tracks, read playback state, control playback, and use Web Playback in the browser (Premium + OAuth).",
+  "author": "ChatBridge",
+  "category": "media",
+  "auth": {
+    "type": "oauth2",
+    "authorizationUrl": "https://accounts.spotify.com/authorize",
+    "tokenUrl": "https://accounts.spotify.com/api/token",
+    "scopes": [
+      "user-read-playback-state",
+      "user-modify-playback-state",
+      "user-read-currently-playing",
+      "streaming"
+    ]
+  },
+  "entry_url": "http://localhost:5176",
+  "iframe": {
+    "width": "100%",
+    "height": "520px",
+    "sandbox": [
+      "allow-scripts",
+      "allow-forms",
+      "allow-same-origin",
+      "allow-popups",
+      "allow-popups-to-escape-sandbox"
+    ]
+  },
+  "tools": [
+    {
+      "name": "search_tracks",
+      "description": "Search Spotify catalog for tracks. Returns names, artists, and spotify URIs for playback.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query (song title, artist, etc.)"
+          },
+          "query": {
+            "type": "string",
+            "description": "Alias for q"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Max results 1-20 (default 10)",
+            "default": "10"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "get_currently_playing",
+      "description": "Get the user's currently playing track on Spotify, if any.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "get_playback_state",
+      "description": "Get full Spotify player state (device, shuffle, progress, etc.).",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "start_resume_playback",
+      "description": "Start or resume playback. Pass uri (spotify:track:...) or uris array. Empty body resumes current context (requires active device).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "uri": {
+            "type": "string",
+            "description": "Single track URI from search_tracks"
+          },
+          "uris": {
+            "type": "string",
+            "description": "JSON array of track URIs (optional; use uri for one track)"
+          }
+        }
+      }
+    },
+    {
+      "name": "transfer_to_web_player",
+      "description": "Transfer Spotify playback to this browser's Web Playback device so audio plays in the chat iframe.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "completion_events": ["playback_started", "track_loaded"]
+}

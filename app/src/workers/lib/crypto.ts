@@ -63,8 +63,8 @@ export async function verifyPassword(
 
 // ── JWT (HS256 via Web Crypto) ─────────────────────────────────────────
 
-function base64url(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
+function base64url(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -110,6 +110,53 @@ export async function signJWT(
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(signingInput));
 
   return `${signingInput}.${base64url(sig)}`;
+}
+
+// ── App OAuth token encryption (AES-256-GCM, key from JWT secret) ───────
+
+async function getAesKeyFromSecret(secret: string): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const raw = await crypto.subtle.digest(
+    "SHA-256",
+    enc.encode(`chatbridge:app-oauth:${secret}`),
+  );
+  return crypto.subtle.importKey("raw", raw, "AES-GCM", false, [
+    "encrypt",
+    "decrypt",
+  ]);
+}
+
+/** Returns "ivB64.ctB64" (both base64url). */
+export async function encryptAppToken(
+  plaintext: string,
+  secret: string,
+): Promise<string> {
+  const key = await getAesKeyFromSecret(secret);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(plaintext),
+  );
+  return `${base64url(iv)}.${base64url(ct)}`;
+}
+
+export async function decryptAppToken(
+  ciphertext: string,
+  secret: string,
+): Promise<string> {
+  const parts = ciphertext.split(".");
+  if (parts.length !== 2) throw new Error("Invalid token ciphertext");
+  const [ivB64, ctB64] = parts;
+  const key = await getAesKeyFromSecret(secret);
+  const iv = new Uint8Array(base64urlDecode(ivB64));
+  const ct = base64urlDecode(ctB64);
+  const pt = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    ct,
+  );
+  return new TextDecoder().decode(pt);
 }
 
 export async function verifyJWT(

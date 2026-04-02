@@ -1,0 +1,8 @@
+# Copy to .dev.vars for local `npm run dev`
+ANTHROPIC_API_KEY=
+JWT_SECRET=
+CF_AIG_TOKEN=
+
+# Spotify OAuth (Phase 6) — create an app at https://developer.spotify.com/dashboard
+SPOTIFY_CLIENT_ID=
+SPOTIFY_CLIENT_SECRET=

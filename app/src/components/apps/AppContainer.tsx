@@ -13,7 +13,10 @@ import type {
   AppMethods,
   AppStateSummary,
   ToolResult,
+  AuthResult,
+  OAuthAccessTokenResult,
 } from "../../types";
+import { getAuthToken } from "../../lib/api";
 
 export interface AppContainerHandle {
   invokeTool(
@@ -88,8 +91,120 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
           requestResize: async (height: number) => {
             setIframeHeight(`${height}px`);
           },
-          requestAuth: async () => {
-            return { success: false, error: "OAuth not yet implemented" };
+          requestAuth: async (
+            provider: string,
+            scopes: string[],
+          ): Promise<AuthResult> => {
+            if (provider !== "spotify") {
+              return {
+                success: false,
+                error: `Unsupported OAuth provider: ${provider}`,
+              };
+            }
+            const jwt = getAuthToken();
+            if (!jwt) {
+              return { success: false, error: "Not logged in to ChatBridge" };
+            }
+            const origin = window.location.origin;
+            const appId = manifest.id;
+            const q = new URLSearchParams({
+              app_id: appId,
+              bridge_jwt: jwt,
+            });
+            if (scopes.length > 0) {
+              q.set("scope", scopes.join(" "));
+            }
+            const url = `${origin}/api/oauth/spotify/authorize?${q.toString()}`;
+
+            return new Promise((resolve) => {
+              let done = false;
+              let tick: ReturnType<typeof setInterval> | undefined;
+              const w = window.open(
+                url,
+                "chatbridge_oauth",
+                "width=520,height=720",
+              );
+
+              const finish = (r: AuthResult) => {
+                if (done) return;
+                done = true;
+                if (tick !== undefined) clearInterval(tick);
+                window.removeEventListener("message", onMessage);
+                resolve(r);
+              };
+
+              const onMessage = (e: MessageEvent) => {
+                if (e.origin !== origin) return;
+                const d = e.data as Record<string, unknown> | null;
+                if (!d || d.type !== "chatbridge-oauth") return;
+                if (d.provider !== "spotify" || d.appId !== appId) return;
+                if (d.success) {
+                  finish({ success: true });
+                } else {
+                  finish({
+                    success: false,
+                    error: String(d.error ?? "OAuth failed"),
+                  });
+                }
+              };
+
+              window.addEventListener("message", onMessage);
+
+              tick = setInterval(() => {
+                if (done) return;
+                if (w?.closed) {
+                  finish({ success: false, error: "OAuth window closed" });
+                }
+              }, 400);
+            });
+          },
+          getOAuthAccessToken: async (
+            provider: string,
+            appId: string,
+          ): Promise<OAuthAccessTokenResult> => {
+            if (provider !== "spotify" || appId !== manifest.id) {
+              return {
+                success: false,
+                error: "Unsupported OAuth target for this app",
+              };
+            }
+            const jwt = getAuthToken();
+            if (!jwt) {
+              return { success: false, error: "Not logged in to ChatBridge" };
+            }
+            const origin = window.location.origin;
+            const res = await fetch(
+              `${origin}/api/oauth/spotify/token?app_id=${encodeURIComponent(appId)}`,
+              { headers: { Authorization: `Bearer ${jwt}` } },
+            );
+            if (res.status === 404) {
+              const body = (await res.json().catch(() => ({}))) as {
+                error?: string;
+              };
+              return {
+                success: false,
+                error: body.error ?? "not_linked",
+              };
+            }
+            if (!res.ok) {
+              return {
+                success: false,
+                error: `Token request failed (${res.status})`,
+              };
+            }
+            const body = (await res.json()) as {
+              success?: boolean;
+              accessToken?: string;
+              expiresAt?: number;
+            };
+            if (!body.success || !body.accessToken) {
+              return { success: false, error: "No access token in response" };
+            }
+            return {
+              success: true,
+              accessToken: body.accessToken,
+              expiresAt: body.expiresAt,
+            };
           },
         },
         timeout: 5000,
@@ -242,7 +357,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
             ref={iframeRef}
             src={manifest.entry_url}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-            allow="clipboard-write"
+            allow="clipboard-write; encrypted-media; autoplay"
             referrerPolicy="no-referrer"
             style={{
               width: manifest.iframe.width,

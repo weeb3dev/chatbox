@@ -1,0 +1,51 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "version": "1.0.0",
+  "description": "Current conditions and multi-day forecast using Open-Meteo (no API key). Ask for weather by city name.",
+  "author": "ChatBridge",
+  "category": "utilities",
+  "auth": { "type": "none" },
+  "entry_url": "http://localhost:5175",
+  "iframe": {
+    "width": "100%",
+    "height": "440px",
+    "sandbox": ["allow-scripts", "allow-forms", "allow-same-origin"]
+  },
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Get current weather for a location (city name or place). Returns temperature, conditions, wind, and humidity.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City or place name, e.g. Austin, Tokyo, Paris France"
+          }
+        },
+        "required": ["location"]
+      }
+    },
+    {
+      "name": "get_forecast",
+      "description": "Get a multi-day weather forecast for a location.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string",
+            "description": "City or place name"
+          },
+          "days": {
+            "type": "string",
+            "description": "Number of days 1-7 (default 3)",
+            "default": "3"
+          }
+        },
+        "required": ["location"]
+      }
+    }
+  ],
+  "completion_events": ["data_loaded"]
+}

@@ -143,14 +143,30 @@ export interface AuthResult {
   error?: string;
 }
 
+export interface OAuthAccessTokenResult {
+  success: boolean;
+  accessToken?: string;
+  /** Unix seconds */
+  expiresAt?: number;
+  error?: string;
+}
+
 export interface PlatformMethods {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+  [key: string]: PlatformMethods | Function;
   notifyStateUpdate(state: AppStateSummary): Promise<void>;
   signalCompletion(event: string, summary: string): Promise<void>;
   requestResize(height: number): Promise<void>;
   requestAuth(provider: string, scopes: string[]): Promise<AuthResult>;
+  getOAuthAccessToken(
+    provider: string,
+    appId: string,
+  ): Promise<OAuthAccessTokenResult>;
 }
 
 export interface AppMethods {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+  [key: string]: AppMethods | Function;
   initialize(config: AppInitConfig): Promise<void>;
   invokeTool(
     toolName: string,
@@ -171,6 +187,9 @@ export interface Env {
   ANTHROPIC_API_KEY: string;
   JWT_SECRET: string;
   CF_AIG_TOKEN: string;
+  /** Spotify OAuth (wrangler secret / .dev.vars) */
+  SPOTIFY_CLIENT_ID?: string;
+  SPOTIFY_CLIENT_SECRET?: string;
 }
 
 // ── JWT payload ────────────────────────────────────────────────────────

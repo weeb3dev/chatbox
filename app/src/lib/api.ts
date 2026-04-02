@@ -1,6 +1,7 @@
 const TOKEN_KEY = "chatbridge_token";
 
-function getToken(): string | null {
+/** JWT for ChatBridge API and OAuth popup authorize URL. */
+export function getAuthToken(): string | null {
   try {
     const raw = localStorage.getItem(TOKEN_KEY);
     if (!raw) return null;
@@ -13,7 +14,7 @@ function getToken(): string | null {
 function authHeaders(extra?: HeadersInit): Headers {
   const headers = new Headers(extra);
   headers.set("Content-Type", "application/json");
-  const token = getToken();
+  const token = getAuthToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }

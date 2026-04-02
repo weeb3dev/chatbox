@@ -37,8 +37,11 @@ conversations.get("/", async (c) => {
 
 conversations.post("/", async (c) => {
   const userId = c.get("userId");
-  const body = await c.req.json<{ title?: string }>().catch(() => ({}));
-  const title = body.title ?? "New conversation";
+  const body = (await c.req.json().catch(() => ({}))) as { title?: string };
+  const title =
+    typeof body.title === "string" && body.title.trim() !== ""
+      ? body.title
+      : "New conversation";
   const id = crypto.randomUUID();
 
   await c.env.DB.prepare(

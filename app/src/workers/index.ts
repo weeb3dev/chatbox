@@ -8,9 +8,10 @@ import conversationRoutes from "./routes/conversations";
 import chatRoutes from "./routes/chat";
 import appRoutes from "./routes/apps";
 import appSessionRoutes from "./routes/app-sessions";
+import spotifyOAuthRoutes from "./routes/oauth-spotify";
 
 export class ChatSession extends DurableObject {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(_request: Request): Promise<Response> {
     return new Response("ChatSession DO stub");
   }
 }
@@ -35,6 +36,7 @@ app.use(
 );
 
 app.route("/api/auth", authRoutes);
+app.route("/api/oauth/spotify", spotifyOAuthRoutes);
 
 app.use("/api/conversations/*", authMiddleware);
 app.use("/api/chat/*", authMiddleware);
