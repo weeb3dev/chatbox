@@ -1,0 +1,69 @@
+{
+  "id": "chess",
+  "name": "Chess",
+  "version": "1.0.0",
+  "description": "Interactive chess game with AI analysis. Play chess against a computer opponent while the chatbot provides commentary and advice.",
+  "author": "ChatBridge",
+  "category": "games",
+  "auth": { "type": "none" },
+  "entry_url": "http://localhost:5181",
+  "iframe": {
+    "width": "100%",
+    "height": "500px",
+    "sandbox": ["allow-scripts", "allow-forms"]
+  },
+  "tools": [
+    {
+      "name": "start_game",
+      "description": "Start a new chess game. Call this when the user wants to play chess.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "player_color": {
+            "type": "string",
+            "enum": ["white", "black"],
+            "default": "white",
+            "description": "Which color the player wants to play as"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": ["beginner", "intermediate", "advanced"],
+            "default": "intermediate",
+            "description": "AI opponent difficulty level"
+          }
+        }
+      }
+    },
+    {
+      "name": "make_move",
+      "description": "Make a chess move using algebraic notation. Example: 'e2e4' moves pawn from e2 to e4, 'Nf3' moves knight to f3, 'O-O' for kingside castling.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "move": {
+            "type": "string",
+            "description": "Move in algebraic notation (e.g., e2e4, Nf3, O-O for castling)"
+          }
+        },
+        "required": ["move"]
+      }
+    },
+    {
+      "name": "get_board_state",
+      "description": "Get the current board state including position, legal moves, and game status.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "analyze_position",
+      "description": "Analyze the current chess position and suggest best moves with explanations.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ],
+  "completion_events": ["game_over", "user_resigned", "draw_agreed"]
+}
