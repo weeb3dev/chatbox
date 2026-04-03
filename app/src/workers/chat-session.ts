@@ -398,12 +398,11 @@ export class ChatSession extends DurableObject<Env> {
     }
   }
 
-  webSocketClose(
-    _ws: WebSocket,
-    _code: number,
-    _reason: string,
-    _wasClean: boolean,
-  ): void {
+  webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
+    void ws;
+    void code;
+    void reason;
+    void wasClean;
     // Hibernation-safe: no async work required; pending_tool_calls remain until tool_result or timeout.
   }
 

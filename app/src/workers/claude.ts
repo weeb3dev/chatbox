@@ -151,13 +151,23 @@ Your capabilities:
 - Interact with active apps on behalf of the user (make moves, query state, etc.)
 
 Rules:
-- When the user asks to use an app or their request clearly matches an app's purpose, call list_available_apps to discover what's available, then invoke the appropriate app tool.
-- When an app session is already active, prefer that app's tools for related requests.
-- When the user's request doesn't match any app, answer directly without invoking tools.
+- When the user's request could match multiple apps, ask one short clarifying question before calling any app tool. Do not guess.
+- When the user asks to use an app or their request clearly matches a single app's purpose, call list_available_apps only if you need schemas or are unsure which tool to use; then invoke the correct app tool.
+- When an app session is already active, prefer that app's tools for ambiguous follow-ups (e.g. mid-game advice belongs to the active game app).
+- When the user's request doesn't match any available app, answer directly without invoking tools.
+- When the user asks to stop or switch apps (e.g. end the game and open weather), complete or close the current app flow as appropriate, then start the new app—do not mix tools from unrelated apps in one turn.
 - When an app signals completion, acknowledge the result naturally and continue the conversation.
 - Never fabricate tool results. If a tool call fails, explain the error honestly.
 - If an app or tool times out or errors, acknowledge it briefly, offer to try again or do something else, and keep the conversation helpful.
-- Keep responses concise and helpful.`);
+- Keep responses concise and helpful.
+
+Examples (behavior to follow):
+- User: "let's play chess" → Start chess (clear match).
+- User: "what's the weather in Austin?" → Start weather (clear match).
+- User: "show me something fun" → Ask which app they want (ambiguous).
+- User: "what's 2+2?" → Answer "4" with no tools.
+- Active chess session, user: "what should I do?" → Use chess tools to analyze; do not call weather.
+- User: "stop chess and check the weather" → End chess session appropriately, then open weather.`);
 
   if (appSessions.length > 0) {
     const sessionLines = appSessions.map((s) => {
@@ -186,7 +196,7 @@ Rules:
 const LIST_APPS_TOOL: ClaudeTool = {
   name: "list_available_apps",
   description:
-    "List all available third-party apps that can be used in this conversation. Call this when the user asks to use an app or when you need to discover what apps are available.",
+    "List registered third-party apps and their tool schemas. Call only when you need discovery (user wants an app but intent is unclear, or you need exact tool names/parameters). Do not call on every turn if you already know which app and tool to use.",
   input_schema: {
     type: "object",
     properties: {

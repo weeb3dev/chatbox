@@ -32,6 +32,8 @@ interface AppContainerProps {
   manifest: AppManifest;
   sessionId: string;
   onClose: () => void;
+  /** Collapse the app panel to a chip; iframe stays mounted for tools. */
+  onMinimize?: () => void;
   onStateUpdate: (state: AppStateSummary) => void;
   onCompletion: (event: string, summary: string) => void;
   onReady?: () => void;
@@ -49,6 +51,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
       manifest,
       sessionId,
       onClose,
+      onMinimize,
       onStateUpdate,
       onCompletion,
       onReady,
@@ -74,9 +77,16 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
     const onStateUpdateRef = useRef(onStateUpdate);
     const onCompletionRef = useRef(onCompletion);
     const onReadyRef = useRef(onReady);
-    onStateUpdateRef.current = onStateUpdate;
-    onCompletionRef.current = onCompletion;
-    onReadyRef.current = onReady;
+
+    useLayoutEffect(() => {
+      onStateUpdateRef.current = onStateUpdate;
+      onCompletionRef.current = onCompletion;
+      onReadyRef.current = onReady;
+    }, [onStateUpdate, onCompletion, onReady]);
+
+    const [lastStateDisplay, setLastStateDisplay] = useState<string | null>(
+      null,
+    );
 
     const destroyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -104,6 +114,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
         methods: {
           notifyStateUpdate: async (s: AppStateSummary) => {
             lastStateSummaryRef.current = s;
+            setLastStateDisplay(s.display ?? null);
             onStateUpdateRef.current(s);
           },
           signalCompletion: async (event: string, summary: string) => {
@@ -139,20 +150,11 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
 
             return new Promise((resolve) => {
               let done = false;
-              let tick: ReturnType<typeof setInterval> | undefined;
               const w = window.open(
                 url,
                 "chatbridge_oauth",
                 "width=520,height=720",
               );
-
-              const finish = (r: AuthResult) => {
-                if (done) return;
-                done = true;
-                if (tick !== undefined) clearInterval(tick);
-                window.removeEventListener("message", onMessage);
-                resolve(r);
-              };
 
               const onMessage = (e: MessageEvent) => {
                 if (e.origin !== origin) return;
@@ -169,9 +171,17 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
                 }
               };
 
+              const finish = (r: AuthResult) => {
+                if (done) return;
+                done = true;
+                clearInterval(tick);
+                window.removeEventListener("message", onMessage);
+                resolve(r);
+              };
+
               window.addEventListener("message", onMessage);
 
-              tick = setInterval(() => {
+              const tick = window.setInterval(() => {
                 if (done) return;
                 if (w?.closed) {
                   finish({ success: false, error: "OAuth window closed" });
@@ -256,7 +266,9 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
     }, [manifest, sessionId]);
 
     const setupConnectionRef = useRef(setupConnection);
-    setupConnectionRef.current = setupConnection;
+    useLayoutEffect(() => {
+      setupConnectionRef.current = setupConnection;
+    }, [setupConnection]);
 
     useLayoutEffect(() => {
       const iframe = iframeRef.current;
@@ -388,32 +400,56 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
       [],
     );
 
-    const summaryText = lastStateSummaryRef.current?.display ?? null;
-
     return (
-      <div className="flex h-full flex-col bg-gray-900">
-        <div className="flex items-center justify-between border-b border-gray-700 px-3 py-2">
+      <div className="flex h-full flex-col bg-surface shadow-[0_0_24px_rgba(0,0,0,0.35)] ring-1 ring-border/80">
+        <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <span className="text-sm font-medium text-gray-200">
             {manifest.name}
           </span>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
-          >
-            <svg
-              className="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div className="flex items-center gap-0.5">
+            {onMinimize && (
+              <button
+                type="button"
+                onClick={onMinimize}
+                className="rounded p-1 text-gray-400 hover:bg-surface-hover hover:text-gray-200"
+                title="Minimize"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M20 12H4"
+                  />
+                </svg>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-gray-400 hover:bg-surface-hover hover:text-gray-200"
+              title="Close"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {degradedWarning && state === "connected" && (
@@ -425,9 +461,9 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
 
         <div className="relative flex-1 overflow-hidden">
           {state === "loading" && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/80">
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/90">
               <div className="flex flex-col items-center gap-2">
-                <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-600 border-t-blue-500" />
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-accent" />
                 <span className="text-xs text-gray-400">
                   Loading {manifest.name}...
                 </span>
@@ -436,7 +472,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
           )}
 
           {state === "error" && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/80">
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/90">
               <div className="flex flex-col items-center gap-3 px-4 text-center">
                 <span className="text-sm font-medium text-red-300">
                   {errorMsg === "App failed to load"
@@ -454,7 +490,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
                 <button
                   type="button"
                   onClick={handleRetry}
-                  className="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-600"
+                  className="rounded bg-surface-hover px-3 py-1.5 text-xs text-gray-200 hover:bg-border"
                 >
                   Retry
                 </button>
@@ -463,7 +499,7 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
           )}
 
           {state === "disconnected" && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-900/80">
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface/90">
               <div className="flex max-w-xs flex-col items-center gap-3 px-4 text-center">
                 <span className="text-sm font-medium text-amber-200">
                   App disconnected
@@ -471,15 +507,15 @@ const AppContainer = forwardRef<AppContainerHandle, AppContainerProps>(
                 <span className="text-xs text-gray-400">
                   {disconnectReason}
                 </span>
-                {summaryText && (
+                {lastStateDisplay && (
                   <span className="text-xs text-gray-500">
-                    Last state: {summaryText}
+                    Last state: {lastStateDisplay}
                   </span>
                 )}
                 <button
                   type="button"
                   onClick={restartIframe}
-                  className="rounded bg-gray-700 px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-600"
+                  className="rounded bg-surface-hover px-3 py-1.5 text-xs text-gray-200 hover:bg-border"
                 >
                   Restart
                 </button>

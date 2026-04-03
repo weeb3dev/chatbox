@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { activeConversationIdAtom } from "../stores/conversations";
 import {
@@ -6,6 +6,7 @@ import {
   isStreamingAtom,
   streamingMessageAtom,
   pendingToolCallAtom,
+  toolInvocationBusyAtom,
   streamErrorAtom,
 } from "../stores/chat";
 import { apiStream, apiFetch, getAuthToken } from "../lib/api";
@@ -83,6 +84,7 @@ export function useChat() {
   const setIsStreaming = useSetAtom(isStreamingAtom);
   const setStreamingMessage = useSetAtom(streamingMessageAtom);
   const setPendingToolCall = useSetAtom(pendingToolCallAtom);
+  const setToolInvocationBusy = useSetAtom(toolInvocationBusyAtom);
   const setStreamError = useSetAtom(streamErrorAtom);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -93,7 +95,9 @@ export function useChat() {
   const accumulatedTextRef = useRef("");
   const wsBoundConversationIdRef = useRef<string | null>(null);
 
-  conversationIdRef.current = conversationId;
+  useLayoutEffect(() => {
+    conversationIdRef.current = conversationId;
+  }, [conversationId]);
 
   const refetchConversationMessages = useCallback(
     async (id: string) => {
@@ -145,6 +149,7 @@ export function useChat() {
           accumulatedText.current = "";
           setStreamingMessage("");
           setIsStreaming(false);
+          setToolInvocationBusy(null);
           onDoneExtras?.();
           break;
         }
@@ -156,6 +161,7 @@ export function useChat() {
           accumulatedText.current = "";
           setStreamingMessage("");
           setIsStreaming(false);
+          setToolInvocationBusy(null);
           onDoneExtras?.();
           break;
         default:
@@ -168,6 +174,7 @@ export function useChat() {
       setPendingToolCall,
       setIsStreaming,
       setStreamError,
+      setToolInvocationBusy,
     ],
   );
 
@@ -302,6 +309,7 @@ export function useChat() {
             accumulatedTextRef.current = "";
             setStreamingMessage("");
             setIsStreaming(false);
+            setToolInvocationBusy(null);
           },
           (errorMsg) => {
             console.error("Chat stream error:", errorMsg);
@@ -311,6 +319,7 @@ export function useChat() {
             accumulatedTextRef.current = "";
             setStreamingMessage("");
             setIsStreaming(false);
+            setToolInvocationBusy(null);
           },
         );
       } catch (err) {
@@ -319,6 +328,7 @@ export function useChat() {
         accumulatedTextRef.current = "";
         setStreamingMessage("");
         setIsStreaming(false);
+        setToolInvocationBusy(null);
       }
     },
     [
@@ -327,6 +337,7 @@ export function useChat() {
       setPendingToolCall,
       setIsStreaming,
       setStreamError,
+      setToolInvocationBusy,
     ],
   );
 

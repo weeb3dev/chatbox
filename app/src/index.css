@@ -7,4 +7,64 @@
   --color-surface-alt: #27273a;
   --color-surface-hover: #2e2e45;
   --color-border: #383852;
+  --color-bg-app: #0c0c12;
+}
+
+@keyframes cb-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes cb-tool-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.cb-message-enter {
+  animation: cb-message-in 0.35s ease-out both;
+}
+
+.cb-tool-shimmer-bar {
+  animation: cb-tool-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes cb-app-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.cb-app-panel-enter {
+  animation: cb-app-panel-in 0.4s ease-out both;
+}
+
+@media (max-width: 1023px) {
+  .cb-app-panel-enter {
+    animation-name: cb-message-in;
+  }
+}
+
+.cb-offscreen-keep-alive {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(100%);
+  white-space: nowrap;
 }

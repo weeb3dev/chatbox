@@ -1,6 +1,9 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { pendingToolCallAtom } from "../stores/chat";
+import {
+  pendingToolCallAtom,
+  toolInvocationBusyAtom,
+} from "../stores/chat";
 import { activeConversationIdAtom } from "../stores/conversations";
 import {
   activeAppAtom,
@@ -31,6 +34,7 @@ const TOOL_TIMEOUT_MS = 10_000;
 export function useAppBridge() {
   const pendingToolCall = useAtomValue(pendingToolCallAtom);
   const setPendingToolCall = useSetAtom(pendingToolCallAtom);
+  const setToolInvocationBusy = useSetAtom(toolInvocationBusyAtom);
   const conversationId = useAtomValue(activeConversationIdAtom);
   const setActiveApp = useSetAtom(activeAppAtom);
   const setActiveAppSessions = useSetAtom(activeAppSessionsAtom);
@@ -78,73 +82,79 @@ export function useAppBridge() {
     pendingInvocationRef.current = null;
     setActiveApp(null);
     setContainerReady(false);
-  }, [setActiveApp, setContainerReady]);
+    setToolInvocationBusy(null);
+  }, [setActiveApp, setContainerReady, setToolInvocationBusy]);
 
   const executeInvocation = useCallback(
     async (invocation: PendingInvocation) => {
-      if (isAppDisabled(invocation.appId)) {
-        await submitToolResult(invocation.callId, {
-          success: false,
-          error: "app_circuit_open",
-          displayText:
-            "This app has had too many failures in a short time and was paused for this session. You can try again in a new chat, or ask me to help without that app.",
-        });
-        await teardownContainer();
-        bumpCircuitTick((t) => t + 1);
-        return;
-      }
-
-      const handle = containerRef.current;
-      if (!handle) {
-        await submitToolResult(invocation.callId, {
-          success: false,
-          error: "App container not ready",
-          displayText: "The app failed to load. Please try again.",
-        });
-        return;
-      }
-
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      let result: ToolResult;
       try {
-        result = await Promise.race([
-          handle.invokeTool(invocation.toolName, invocation.params),
-          new Promise<ToolResult>((_, reject) => {
-            timeoutId = window.setTimeout(
-              () => reject(new Error("__TOOL_TIMEOUT__")),
-              TOOL_TIMEOUT_MS,
-            );
-          }),
-        ]);
-      } catch (err) {
-        if (err instanceof Error && err.message === "__TOOL_TIMEOUT__") {
-          result = {
+        if (isAppDisabled(invocation.appId)) {
+          await submitToolResult(invocation.callId, {
             success: false,
-            error: "App did not respond in time",
-            displayText: `${invocation.appName} took too long to respond. It may have encountered an error.`,
-          };
-        } else {
-          const msg =
-            err instanceof Error ? err.message : "Tool invocation failed";
-          result = { success: false, error: msg, displayText: msg };
+            error: "app_circuit_open",
+            displayText:
+              "This app has had too many failures in a short time and was paused for this session. You can try again in a new chat, or ask me to help without that app.",
+          });
+          await teardownContainer();
+          bumpCircuitTick((t) => t + 1);
+          return;
         }
+
+        const handle = containerRef.current;
+        if (!handle) {
+          await submitToolResult(invocation.callId, {
+            success: false,
+            error: "App container not ready",
+            displayText: "The app failed to load. Please try again.",
+          });
+          return;
+        }
+
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        let result: ToolResult;
+        try {
+          result = await Promise.race([
+            handle.invokeTool(invocation.toolName, invocation.params),
+            new Promise<ToolResult>((_, reject) => {
+              timeoutId = window.setTimeout(
+                () => reject(new Error("__TOOL_TIMEOUT__")),
+                TOOL_TIMEOUT_MS,
+              );
+            }),
+          ]);
+        } catch (err) {
+          if (err instanceof Error && err.message === "__TOOL_TIMEOUT__") {
+            result = {
+              success: false,
+              error: "App did not respond in time",
+              displayText: `${invocation.appName} took too long to respond. It may have encountered an error.`,
+            };
+          } else {
+            const msg =
+              err instanceof Error ? err.message : "Tool invocation failed";
+            result = { success: false, error: msg, displayText: msg };
+          }
+        } finally {
+          if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        }
+
+        if (result.success) {
+          recordAppSuccess(invocation.appId);
+        } else {
+          recordAppFailure(invocation.appId);
+        }
+        bumpCircuitTick((t) => t + 1);
+
+        await submitToolResult(invocation.callId, result);
       } finally {
-        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        setToolInvocationBusy(null);
       }
-
-      if (result.success) {
-        recordAppSuccess(invocation.appId);
-      } else {
-        recordAppFailure(invocation.appId);
-      }
-      bumpCircuitTick((t) => t + 1);
-
-      await submitToolResult(invocation.callId, result);
     },
     [
       submitToolResult,
       teardownContainer,
       bumpCircuitTick,
+      setToolInvocationBusy,
     ],
   );
 
@@ -175,6 +185,11 @@ export function useAppBridge() {
       appName: event.appId,
     };
 
+    setToolInvocationBusy({
+      tool: event.tool,
+      displayLabel: event.appId,
+    });
+
     (async () => {
       try {
         if (isAppDisabled(event.appId)) {
@@ -185,11 +200,16 @@ export function useAppBridge() {
               "This app has had too many failures in a short time and was paused for this session. You can try again in a new chat, or ask me to help without that app.",
           });
           bumpCircuitTick((t) => t + 1);
+          setToolInvocationBusy(null);
           return;
         }
 
         const manifest = await fetchManifest(event.appId);
         invocation.appName = manifest.name;
+        setToolInvocationBusy({
+          tool: event.tool,
+          displayLabel: manifest.name,
+        });
 
         const session = await createAppSession(event.appId);
         if (!session) {
@@ -198,6 +218,7 @@ export function useAppBridge() {
             error: "No active conversation",
             displayText: "No active conversation to create app session.",
           });
+          setToolInvocationBusy(null);
           return;
         }
 
@@ -217,11 +238,13 @@ export function useAppBridge() {
         });
         recordAppFailure(event.appId);
         bumpCircuitTick((t) => t + 1);
+        setToolInvocationBusy(null);
       }
     })();
   }, [
     pendingToolCall,
     setPendingToolCall,
+    setToolInvocationBusy,
     fetchManifest,
     createAppSession,
     setActiveApp,

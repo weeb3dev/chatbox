@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { conversationsAtom, activeConversationIdAtom } from "../../stores/conversations";
 import {
@@ -12,7 +12,30 @@ import { useNavigate } from "@tanstack/react-router";
 import { apiFetch } from "../../lib/api";
 import type { Conversation, Message } from "../../types";
 
-export default function ConversationList() {
+function ConversationSkeletonRows() {
+  return (
+    <div className="space-y-2 px-3 py-1" aria-hidden>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={i}
+          className="h-9 animate-pulse rounded-md bg-surface-alt/80"
+          style={{ animationDelay: `${i * 80}ms` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export interface ConversationListProps {
+  /** Call when user picks a conversation (e.g. close mobile drawer). */
+  onConversationSelected?: () => void;
+  className?: string;
+}
+
+export default function ConversationList({
+  onConversationSelected,
+  className = "",
+}: ConversationListProps) {
   const [conversations, setConversations] = useAtom(conversationsAtom);
   const [activeId, setActiveId] = useAtom(activeConversationIdAtom);
   const setMessages = useSetAtom(messagesAtom);
@@ -22,9 +45,44 @@ export default function ConversationList() {
   const setToken = useSetAtom(authTokenAtom);
   const user = useAtomValue(userAtom);
   const navigate = useNavigate();
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState<string | null>(null);
+
+  const loadConversations = useCallback(() => {
+    setListLoading(true);
+    setListError(null);
+    apiFetch<Conversation[]>("/api/conversations")
+      .then((data) => {
+        setConversations(data);
+        setListError(null);
+      })
+      .catch(() => {
+        setListError("Could not load conversations");
+      })
+      .finally(() => {
+        setListLoading(false);
+      });
+  }, [setConversations]);
 
   useEffect(() => {
-    apiFetch<Conversation[]>("/api/conversations").then(setConversations).catch(() => {});
+    let cancelled = false;
+    apiFetch<Conversation[]>("/api/conversations")
+      .then((data) => {
+        if (cancelled) return;
+        setConversations(data);
+        setListError(null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setListError("Could not load conversations");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setListLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [setConversations]);
 
   const selectConversation = useCallback(
@@ -33,6 +91,7 @@ export default function ConversationList() {
       setStreaming(false);
       setStreamingMsg("");
       setStreamError(null);
+      onConversationSelected?.();
       try {
         const data = await apiFetch<{ messages: Message[] }>(
           `/api/conversations/${id}`,
@@ -42,7 +101,14 @@ export default function ConversationList() {
         setMessages([]);
       }
     },
-    [setActiveId, setMessages, setStreaming, setStreamingMsg, setStreamError],
+    [
+      setActiveId,
+      setMessages,
+      setStreaming,
+      setStreamingMsg,
+      setStreamError,
+      onConversationSelected,
+    ],
   );
 
   async function createConversation() {
@@ -79,7 +145,9 @@ export default function ConversationList() {
   }
 
   return (
-    <div className="flex h-full w-64 flex-col border-r border-border bg-surface">
+    <div
+      className={`flex h-full w-64 flex-col border-r border-border bg-surface ${className}`}
+    >
       <div className="p-3">
         <button
           onClick={createConversation}
@@ -89,8 +157,23 @@ export default function ConversationList() {
         </button>
       </div>
 
+      {listError && (
+        <div className="mx-3 mb-2 rounded-md border border-red-900/40 bg-red-950/30 px-2 py-2 text-xs text-red-200/90">
+          <p>{listError}</p>
+          <button
+            type="button"
+            onClick={loadConversations}
+            className="mt-1.5 text-red-300 underline hover:text-red-100"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto">
-        {conversations.map((conv) => (
+        {listLoading && <ConversationSkeletonRows />}
+        {!listLoading &&
+          conversations.map((conv) => (
           <div
             key={conv.id}
             onClick={() => selectConversation(conv.id)}
@@ -112,6 +195,11 @@ export default function ConversationList() {
             </button>
           </div>
         ))}
+        {!listLoading && conversations.length === 0 && !listError && (
+          <p className="px-3 py-4 text-center text-xs text-gray-500">
+            No conversations yet
+          </p>
+        )}
       </div>
 
       <div className="border-t border-border p-3">
