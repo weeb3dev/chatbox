@@ -1,73 +1,38 @@
-# React + TypeScript + Vite
+# ChatBridge
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+An AI chat platform where third-party apps run inside sandboxed iframes and interact with Claude through a tool-use protocol. Users chat naturally; Claude discovers and invokes app tools on their behalf, creating a seamless bridge between conversation and interactive applications.
 
-Currently, two official plugins are available:
+Built on Cloudflare Workers, D1, Durable Objects, and AI Gateway.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Quick Start
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+cd app
+npm install
+cp .dev.vars.example .dev.vars   # fill in your keys
+npx wrangler d1 migrations apply chatbridge-db --local
+npm run dev                      # http://localhost:5173
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+See [docs/README.md](docs/README.md) for full setup instructions including Cloudflare resource creation and app registration.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Documentation
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+| Doc | Description |
+|-----|-------------|
+| [Setup Guide](docs/README.md) | Prerequisites, local dev, environment variables, deployment |
+| [Architecture](docs/ARCHITECTURE.md) | System diagram, request flow, state management, security model |
+| [Plugin API](docs/PLUGIN_API.md) | Build a ChatBridge app: manifest schema, Penpal contract, tool format |
+| [Cost Analysis](docs/COST_ANALYSIS.md) | AI Gateway analytics, production cost projections, optimization strategies |
+
+## Bundled Apps
+
+| App | Port (dev) | Auth | Description |
+|-----|-----------|------|-------------|
+| [Chess](../apps/chess) | 5174 | None | Interactive chess with AI commentary |
+| [Weather](../apps/weather) | 5175 | None | Current conditions and forecast via Open-Meteo |
+| [Spotify](../apps/spotify-app) | 5176 | OAuth2 | Search, playback control, Web Playback SDK |
+
+## License
+
+See the root [LICENSE](../LICENSE) file.
