@@ -99,20 +99,6 @@ export function useChat() {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
 
-  const refetchConversationMessages = useCallback(
-    async (id: string) => {
-      try {
-        const data = await apiFetch<{ messages: Message[] }>(
-          `/api/conversations/${id}`,
-        );
-        setMessages(data.messages ?? []);
-      } catch {
-        /* keep current */
-      }
-    },
-    [setMessages],
-  );
-
   const handleServerEvent = useCallback(
     (
       event: ServerMessage,
@@ -178,6 +164,35 @@ export function useChat() {
     ],
   );
 
+  const handleServerEventRef = useRef(handleServerEvent);
+  useLayoutEffect(() => {
+    handleServerEventRef.current = handleServerEvent;
+  }, [handleServerEvent]);
+
+  const refetchRef = useRef(async (id: string) => {
+    try {
+      const data = await apiFetch<{ messages: Message[] }>(
+        `/api/conversations/${id}`,
+      );
+      setMessages(data.messages ?? []);
+    } catch {
+      /* keep current */
+    }
+  });
+  useLayoutEffect(() => {
+    refetchRef.current = async (id: string) => {
+      try {
+        const data = await apiFetch<{ messages: Message[] }>(
+          `/api/conversations/${id}`,
+        );
+        setMessages(data.messages ?? []);
+      } catch {
+        /* keep current */
+      }
+    };
+  }, [setMessages]);
+
+  // WS lifecycle: only re-run when conversationId changes (refs keep handlers stable)
   useEffect(() => {
     reconnectAttemptRef.current = 0;
     if (reconnectTimeoutRef.current) {
@@ -220,7 +235,7 @@ export function useChat() {
         } catch {
           return;
         }
-        handleServerEvent(event, boundId, accumulatedTextRef);
+        handleServerEventRef.current(event, boundId, accumulatedTextRef);
       };
 
       ws.onopen = () => {
@@ -237,7 +252,7 @@ export function useChat() {
         reconnectAttemptRef.current += 1;
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectTimeoutRef.current = null;
-          void refetchConversationMessages(boundId).finally(() => {
+          void refetchRef.current(boundId).finally(() => {
             connect();
           });
         }, delay);
@@ -269,7 +284,8 @@ export function useChat() {
       }
       wsBoundConversationIdRef.current = null;
     };
-  }, [conversationId, handleServerEvent, refetchConversationMessages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId]);
 
   const runViaSSE = useCallback(
     async (

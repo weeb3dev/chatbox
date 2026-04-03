@@ -337,6 +337,13 @@ export class ChatSession extends DurableObject<Env> {
         const result = clientMsg.result as ToolResult;
         if (!callId || !result) return;
 
+        const existing = await this.env.DB.prepare(
+          "SELECT id FROM messages WHERE conversation_id = ? AND role = 'tool_result' AND tool_params = ?",
+        )
+          .bind(conversationId, callId)
+          .first<{ id: string }>();
+        if (existing) return;
+
         this.ctx.storage.sql.exec(
           "DELETE FROM pending_tool_calls WHERE call_id = ?",
           callId,

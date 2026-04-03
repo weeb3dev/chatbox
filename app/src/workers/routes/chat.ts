@@ -112,6 +112,15 @@ chat.post("/tool-result", async (c) => {
   if (!conv) return c.json({ error: "Conversation not found" }, 404);
   if (conv.user_id !== userId) return c.json({ error: "Forbidden" }, 403);
 
+  const existing = await c.env.DB.prepare(
+    "SELECT id FROM messages WHERE conversation_id = ? AND role = 'tool_result' AND tool_params = ?",
+  )
+    .bind(conversationId, callId)
+    .first<{ id: string }>();
+  if (existing) {
+    return c.json({ ok: true, deduplicated: true });
+  }
+
   let seqNum = await getNextSeqNum(c.env.DB, conversationId);
   await saveMessage(c.env.DB, {
     conversationId,

@@ -30,6 +30,7 @@ interface PendingInvocation {
 }
 
 const TOOL_TIMEOUT_MS = 10_000;
+const CONTAINER_LOAD_TIMEOUT_MS = 15_000;
 
 export function useAppBridge() {
   const pendingToolCall = useAtomValue(pendingToolCallAtom);
@@ -46,6 +47,8 @@ export function useAppBridge() {
   const containerRef = useRef<AppContainerHandle | null>(null);
   const pendingInvocationRef = useRef<PendingInvocation | null>(null);
   const processingRef = useRef(false);
+  const completedCallIdsRef = useRef(new Set<string>());
+  const containerLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setContainerRef = useCallback(
     (handle: AppContainerHandle | null) => {
@@ -87,8 +90,16 @@ export function useAppBridge() {
 
   const executeInvocation = useCallback(
     async (invocation: PendingInvocation) => {
+      if (completedCallIdsRef.current.has(invocation.callId)) return;
+
       try {
+        if (containerLoadTimerRef.current) {
+          clearTimeout(containerLoadTimerRef.current);
+          containerLoadTimerRef.current = null;
+        }
+
         if (isAppDisabled(invocation.appId)) {
+          completedCallIdsRef.current.add(invocation.callId);
           await submitToolResult(invocation.callId, {
             success: false,
             error: "app_circuit_open",
@@ -102,6 +113,7 @@ export function useAppBridge() {
 
         const handle = containerRef.current;
         if (!handle) {
+          completedCallIdsRef.current.add(invocation.callId);
           await submitToolResult(invocation.callId, {
             success: false,
             error: "App container not ready",
@@ -145,6 +157,7 @@ export function useAppBridge() {
         }
         bumpCircuitTick((t) => t + 1);
 
+        completedCallIdsRef.current.add(invocation.callId);
         await submitToolResult(invocation.callId, result);
       } finally {
         setToolInvocationBusy(null);
@@ -160,6 +173,10 @@ export function useAppBridge() {
 
   useEffect(() => {
     if (containerReady && pendingInvocationRef.current && !processingRef.current) {
+      if (containerLoadTimerRef.current) {
+        clearTimeout(containerLoadTimerRef.current);
+        containerLoadTimerRef.current = null;
+      }
       processingRef.current = true;
       const invocation = pendingInvocationRef.current;
       pendingInvocationRef.current = null;
@@ -176,6 +193,7 @@ export function useAppBridge() {
     setPendingToolCall(null);
 
     if (event.tool === "list_available_apps") return;
+    if (completedCallIdsRef.current.has(event.callId)) return;
 
     const invocation: PendingInvocation = {
       callId: event.callId,
@@ -193,6 +211,7 @@ export function useAppBridge() {
     (async () => {
       try {
         if (isAppDisabled(event.appId)) {
+          completedCallIdsRef.current.add(invocation.callId);
           await submitToolResult(invocation.callId, {
             success: false,
             error: "app_circuit_open",
@@ -213,6 +232,7 @@ export function useAppBridge() {
 
         const session = await createAppSession(event.appId);
         if (!session) {
+          completedCallIdsRef.current.add(invocation.callId);
           await submitToolResult(invocation.callId, {
             success: false,
             error: "No active conversation",
@@ -228,9 +248,25 @@ export function useAppBridge() {
           await executeInvocation(invocation);
         } else {
           pendingInvocationRef.current = invocation;
+          containerLoadTimerRef.current = setTimeout(async () => {
+            containerLoadTimerRef.current = null;
+            if (pendingInvocationRef.current?.callId !== invocation.callId) return;
+            if (completedCallIdsRef.current.has(invocation.callId)) return;
+            pendingInvocationRef.current = null;
+            completedCallIdsRef.current.add(invocation.callId);
+            await submitToolResult(invocation.callId, {
+              success: false,
+              error: "container_load_timeout",
+              displayText: `${invocation.appName} took too long to load. Please try again.`,
+            });
+            recordAppFailure(event.appId);
+            bumpCircuitTick((t) => t + 1);
+            setToolInvocationBusy(null);
+          }, CONTAINER_LOAD_TIMEOUT_MS);
         }
       } catch (err) {
         console.error("useAppBridge: failed to open app", err);
+        completedCallIdsRef.current.add(invocation.callId);
         await submitToolResult(invocation.callId, {
           success: false,
           error: "Failed to load app",

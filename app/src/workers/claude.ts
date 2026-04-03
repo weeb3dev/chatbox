@@ -249,6 +249,7 @@ export function buildToolToAppMap(
 
 export function convertMessageHistory(dbMessages: Message[]): ClaudeMessage[] {
   const claudeMessages: ClaudeMessage[] = [];
+  const seenToolResultIds = new Set<string>();
 
   for (let i = 0; i < dbMessages.length; i++) {
     const msg = dbMessages[i];
@@ -261,8 +262,6 @@ export function convertMessageHistory(dbMessages: Message[]): ClaudeMessage[] {
         contentBlocks.push({ type: "text", text: msg.content });
       }
 
-      // Merge any immediately following tool_call rows into this assistant message.
-      // tool_call rows store Claude's tool_use_id in the `content` field.
       while (i + 1 < dbMessages.length && dbMessages[i + 1].role === "tool_call") {
         i++;
         const tc = dbMessages[i];
@@ -276,6 +275,11 @@ export function convertMessageHistory(dbMessages: Message[]): ClaudeMessage[] {
 
       claudeMessages.push({ role: "assistant", content: contentBlocks });
     } else if (msg.role === "tool_result") {
+      const toolUseId = msg.toolParams ?? msg.id;
+
+      if (seenToolResultIds.has(toolUseId)) continue;
+      seenToolResultIds.add(toolUseId);
+
       const resultContent = msg.toolResult
         ? (() => {
             try {
@@ -287,23 +291,25 @@ export function convertMessageHistory(dbMessages: Message[]): ClaudeMessage[] {
           })()
         : "No result";
 
-      // tool_result messages reference the tool_call's message id via the tool_params field
-      // which stores the callId. We stored the callId in tool_params when saving tool_result rows.
-      const toolUseId = msg.toolParams ?? msg.id;
+      const block: ClaudeToolResultBlock = {
+        type: "tool_result",
+        tool_use_id: toolUseId,
+        content: resultContent,
+      };
 
-      claudeMessages.push({
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: toolUseId,
-            content: resultContent,
-          },
-        ],
-      });
+      const last = claudeMessages[claudeMessages.length - 1];
+      if (
+        last?.role === "user" &&
+        Array.isArray(last.content) &&
+        (last.content as ClaudeToolResultBlock[]).every(
+          (b) => (b as { type: string }).type === "tool_result",
+        )
+      ) {
+        (last.content as ClaudeToolResultBlock[]).push(block);
+      } else {
+        claudeMessages.push({ role: "user", content: [block] });
+      }
     }
-    // 'tool_call' rows handled above (merged into preceding assistant)
-    // 'system' rows are skipped — system prompt is passed separately
   }
 
   return claudeMessages;
