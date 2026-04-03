@@ -16,7 +16,7 @@
       "streaming"
     ]
   },
-  "entry_url": "http://localhost:5176",
+  "entry_url": "https://chatbridge-spotify.pages.dev",
   "iframe": {
     "width": "100%",
     "height": "520px",

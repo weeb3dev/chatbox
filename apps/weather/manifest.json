@@ -6,7 +6,7 @@
   "author": "ChatBridge",
   "category": "utilities",
   "auth": { "type": "none" },
-  "entry_url": "http://localhost:5175",
+  "entry_url": "https://chatbridge-weather.pages.dev",
   "iframe": {
     "width": "100%",
     "height": "440px",

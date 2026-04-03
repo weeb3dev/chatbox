@@ -6,7 +6,7 @@
   "author": "ChatBridge",
   "category": "games",
   "auth": { "type": "none" },
-  "entry_url": "http://localhost:5174",
+  "entry_url": "https://chatbridge-chess.pages.dev",
   "iframe": {
     "width": "100%",
     "height": "500px",
